@@ -1,0 +1,242 @@
+# =============================================================================
+# Agentic RAG Helm Chart - Default Values
+# =============================================================================
+
+global:
+  # -- Global image pull secrets
+  imagePullSecrets: []
+  # -- Global storage class
+  storageClass: ""
+
+# -----------------------------------------------------------------------------
+# vLLM Inference Engine
+# -----------------------------------------------------------------------------
+vllm:
+  enabled: true
+  replicaCount: 1
+  
+  image:
+    repository: vllm/vllm-openai
+    tag: "latest"
+    pullPolicy: IfNotPresent
+  
+  # -- GPU configuration
+  resources:
+    requests:
+      cpu: "2"
+      memory: "8Gi"
+      nvidia.com/gpu: "1"
+    limits:
+      cpu: "4"
+      memory: "16Gi"
+      nvidia.com/gpu: "1"
+  
+  # -- Model configuration
+  model:
+    name: "meta-llama/Llama-3.2-1B-Instruct"
+    maxModelLen: 4096
+    gpuMemoryUtilization: 0.9
+    dtype: "auto"
+  
+  # -- Service configuration
+  service:
+    type: ClusterIP
+    port: 8000
+  
+  # -- Persistence for model cache
+  persistence:
+    enabled: true
+    storageClass: ""
+    accessModes:
+      - ReadWriteOnce
+    size: 50Gi
+  
+  # -- Autoscaling
+  autoscaling:
+    enabled: true
+    minReplicas: 1
+    maxReplicas: 4
+    targetGPUUtilization: 80
+    targetRequestQueueDepth: 10
+
+# -----------------------------------------------------------------------------
+# ChromaDB Vector Store
+# -----------------------------------------------------------------------------
+chromadb:
+  enabled: true
+  replicaCount: 1
+  
+  image:
+    repository: chromadb/chroma
+    tag: "latest"
+    pullPolicy: IfNotPresent
+  
+  resources:
+    requests:
+      cpu: "500m"
+      memory: "1Gi"
+    limits:
+      cpu: "1"
+      memory: "2Gi"
+  
+  service:
+    type: ClusterIP
+    port: 8000
+  
+  persistence:
+    enabled: true
+    storageClass: ""
+    accessModes:
+      - ReadWriteOnce
+    size: 20Gi
+
+# -----------------------------------------------------------------------------
+# FastAPI Backend
+# -----------------------------------------------------------------------------
+backend:
+  replicaCount: 2
+  
+  image:
+    repository: rag-system/backend
+    tag: "latest"
+    pullPolicy: IfNotPresent
+  
+  resources:
+    requests:
+      cpu: "500m"
+      memory: "512Mi"
+    limits:
+      cpu: "1"
+      memory: "1Gi"
+  
+  service:
+    type: ClusterIP
+    port: 8000
+  
+  # -- Environment variables
+  env:
+    LLM_BACKEND: "vllm"
+    VLLM_BASE_URL: "http://vllm-service:8000"
+    CHROMA_DIR: "/app/chroma_db"
+    INPUT_GUARD: "true"
+    OUTPUT_GUARD: "true"
+    PII_MASK: "true"
+  
+  # -- Autoscaling
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 10
+    targetCPUUtilization: 70
+    targetMemoryUtilization: 80
+
+# -----------------------------------------------------------------------------
+# Streamlit Frontend
+# -----------------------------------------------------------------------------
+frontend:
+  replicaCount: 1
+  
+  image:
+    repository: rag-system/frontend
+    tag: "latest"
+    pullPolicy: IfNotPresent
+  
+  resources:
+    requests:
+      cpu: "250m"
+      memory: "256Mi"
+    limits:
+      cpu: "500m"
+      memory: "512Mi"
+  
+  service:
+    type: ClusterIP
+    port: 8501
+
+# -----------------------------------------------------------------------------
+# Ollama (Alternative to vLLM)
+# -----------------------------------------------------------------------------
+ollama:
+  enabled: false
+  replicaCount: 1
+  
+  image:
+    repository: ollama/ollama
+    tag: "latest"
+    pullPolicy: IfNotPresent
+  
+  resources:
+    requests:
+      cpu: "1"
+      memory: "4Gi"
+    limits:
+      cpu: "2"
+      memory: "8Gi"
+  
+  persistence:
+    enabled: true
+    storageClass: ""
+    accessModes:
+      - ReadWriteOnce
+    size: 30Gi
+
+# -----------------------------------------------------------------------------
+# NGINX Ingress Controller
+# -----------------------------------------------------------------------------
+ingress:
+  enabled: true
+  className: "nginx"
+  annotations:
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "600"
+  
+  hosts:
+    - host: rag.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+          service: frontend-service
+        - path: /api
+          pathType: Prefix
+          service: backend-service
+        - path: /vllm
+          pathType: Prefix
+          service: vllm-service
+  
+  tls:
+    - secretName: rag-tls
+      hosts:
+        - rag.example.com
+
+# -----------------------------------------------------------------------------
+# Cert-Manager (Automatic SSL)
+# -----------------------------------------------------------------------------
+certManager:
+  enabled: true
+  issuer:
+    email: admin@example.com
+    server: "https://acme-v02.api.letsencrypt.org/directory"
+    # -- Use staging for testing
+    # server: "https://acme-staging-v02.api.letsencrypt.org/directory"
+
+# -----------------------------------------------------------------------------
+# Monitoring & Observability
+# -----------------------------------------------------------------------------
+monitoring:
+  enabled: true
+  serviceMonitor:
+    enabled: true
+    interval: 30s
+  
+  grafanaDashboard:
+    enabled: true
+
+# -----------------------------------------------------------------------------
+# NVIDIA GPU Operator
+# -----------------------------------------------------------------------------
+gpuOperator:
+  enabled: false
+  # -- Install with: helm install gpu-operator nvidia/gpu-operator -n gpu-operator --create-namespace

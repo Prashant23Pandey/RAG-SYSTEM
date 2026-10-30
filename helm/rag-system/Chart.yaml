@@ -1,0 +1,25 @@
+apiVersion: v2
+name: rag-system
+description: Production-grade Agentic RAG system with vLLM, ChromaDB, and multi-agent orchestration
+type: application
+version: 1.0.0
+appVersion: "1.0.0"
+keywords:
+  - rag
+  - llm
+  - vllm
+  - chromadb
+  - langgraph
+  - agentic
+maintainers:
+  - name: prash
+    email: prash@example.com
+dependencies:
+  - name: vllm
+    version: "0.1.0"
+    repository: "file://charts/vllm"
+    condition: vllm.enabled
+  - name: chromadb
+    version: "0.1.0"
+    repository: "file://charts/chromadb"
+    condition: chromadb.enabled

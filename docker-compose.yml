@@ -1,0 +1,295 @@
+services:
+  # ------------------------------------------------------------------
+  # Ollama – local LLM runtime
+  # ------------------------------------------------------------------
+  ollama:
+    image: ollama/ollama:latest
+    container_name: rag-ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 4g
+    restart: unless-stopped
+
+  # ------------------------------------------------------------------
+  # Post-startup model pull (runs once then exits)
+  # ------------------------------------------------------------------
+  ollama-pull:
+    image: ollama/ollama:latest
+    container_name: rag-ollama-pull
+    depends_on:
+      ollama:
+        condition: service_healthy
+    entrypoint: >
+      sh -c "
+        echo 'Pulling llama3.2 ...' && ollama pull llama3.2 &&
+        echo 'Pulling nomic-embed-text ...' && ollama pull nomic-embed-text &&
+        echo 'All models pulled successfully.'
+      "
+    restart: "no"
+
+  # ------------------------------------------------------------------
+  # Cross-Encoder reranker model download (one-shot)
+  # ------------------------------------------------------------------
+  reranker-download:
+    image: python:3.11-slim
+    container_name: rag-reranker-download
+    volumes:
+      - reranker_cache:/root/.cache/torch/sentence_transformers
+    entrypoint: >
+      sh -c "
+        pip install --no-cache-dir sentence-transformers &&
+        python -c 'from sentence_transformers import CrossEncoder; CrossEncoder(\"cross-encoder/ms-marco-MiniLM-L-6-v2\"); print(\"Reranker model downloaded.\")'
+      "
+    restart: "no"
+
+  # ------------------------------------------------------------------
+  # Langfuse observability dashboard (self-hosted)
+  # ------------------------------------------------------------------
+  langfuse:
+    image: langfuse/langfuse:latest
+    container_name: rag-langfuse
+    ports:
+      - "3000:3000"
+    environment:
+      - DATABASE_URL=postgresql://langfuse:langfuse@langfuse-db:5432/langfuse
+      - NEXTAUTH_SECRET=super-secret-jwt-key-change-me
+      - NEXTAUTH_URL=http://localhost:3000
+      - SALT=super-secret-salt-change-me
+    depends_on:
+      langfuse-db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/public/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 1g
+    restart: unless-stopped
+
+  # ------------------------------------------------------------------
+  # Langfuse PostgreSQL database
+  # ------------------------------------------------------------------
+  langfuse-db:
+    image: postgres:16-alpine
+    container_name: rag-langfuse-db
+    environment:
+      - POSTGRES_USER=langfuse
+      - POSTGRES_PASSWORD=langfuse
+      - POSTGRES_DB=langfuse
+    volumes:
+      - langfuse_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U langfuse"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+    restart: unless-stopped
+
+  # ------------------------------------------------------------------
+  # vLLM OpenAI-compatible server (alternative to Ollama)
+  # ------------------------------------------------------------------
+  vllm:
+    image: vllm/vllm-openai:latest
+    container_name: rag-vllm
+    ports:
+      - "8001:8000"
+    environment:
+      - MODEL_NAME=${VLLM_MODEL:-meta-llama/Llama-3.2-1B-Instruct}
+      - HUGGING_FACE_HUB_TOKEN=${HF_TOKEN:-}
+    volumes:
+      - vllm_cache:/root/.cache/huggingface
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    deploy:
+      resources:
+        limits:
+          memory: 8g
+    restart: unless-stopped
+    command: >
+      --model ${VLLM_MODEL:-meta-llama/Llama-3.2-1B-Instruct}
+      --host 0.0.0.0
+      --port 8000
+      --max-model-len 4096
+      --gpu-memory-utilization 0.9
+      --dtype auto
+
+  # ------------------------------------------------------------------
+  # FastAPI backend
+  # ------------------------------------------------------------------
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: rag-backend
+    ports:
+      - "8000:8000"
+    environment:
+      - LLM_BACKEND=${LLM_BACKEND:-ollama}
+      - OLLAMA_BASE_URL=http://ollama:11434
+      - VLLM_BASE_URL=http://vllm:8000
+      - CHROMA_DIR=/app/chroma_db
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:-}
+      - LANGFUSE_HOST=http://langfuse:3000
+      - RERANKER_MODEL=cross-encoder/ms-marco-MiniLM-L-6-v2
+      - INPUT_GUARD=true
+      - OUTPUT_GUARD=true
+      - PII_MASK=true
+    volumes:
+      - chroma_data:/app/chroma_db
+      - reranker_cache:/root/.cache/torch/sentence_transformers
+      - ./app.py:/app/app.py:ro
+      - ./workflow.py:/app/workflow.py:ro
+      - ./nodes.py:/app/nodes.py:ro
+      - ./grader.py:/app/grader.py:ro
+      - ./rewriter.py:/app/rewriter.py:ro
+      - ./vector_store.py:/app/vector_store.py:ro
+      - ./web_search.py:/app/web_search.py:ro
+      - ./observability.py:/app/observability.py:ro
+      - ./hybrid_search.py:/app/hybrid_search.py:ro
+      - ./guardrails.py:/app/guardrails.py:ro
+      - ./ingest.py:/app/ingest.py:ro
+    depends_on:
+      ollama:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          memory: 2g
+    restart: unless-stopped
+    command: >
+      uvicorn app:app
+      --host 0.0.0.0 --port 8000
+      --workers 2
+      --timeout-keep-alive 300
+
+  # ------------------------------------------------------------------
+  # Streamlit frontend
+  # ------------------------------------------------------------------
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: rag-frontend
+    ports:
+      - "8501:8501"
+    environment:
+      - BACKEND_URL=http://backend:8000
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8501/_stcore/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          memory: 1g
+    restart: unless-stopped
+    command: >
+      streamlit run ui.py
+      --server.port 8501
+      --server.address 0.0.0.0
+      --server.headless true
+      --browser.gatherUsageStats false
+
+  # ------------------------------------------------------------------
+  # Evaluation runner (one-shot)
+  # ------------------------------------------------------------------
+  evaluate:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: rag-evaluate
+    environment:
+      - OLLAMA_BASE_URL=http://ollama:11434
+      - CHROMA_DIR=/app/chroma_db
+    volumes:
+      - chroma_data:/app/chroma_db
+      - ./eval.py:/app/eval.py
+      - ./test_dataset.json:/app/test_dataset.json
+      - ./eval_reports:/app/eval_reports
+    depends_on:
+      ollama:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 2g
+    restart: "no"
+    command: python eval.py --threshold 0.5
+
+  # ------------------------------------------------------------------
+  # ONNX Model Exporter (one-shot)
+  # ------------------------------------------------------------------
+  onnx-export:
+    image: python:3.11-slim
+    container_name: rag-onnx-export
+    volumes:
+      - onnx_models:/app/onnx
+    entrypoint: >
+      sh -c "
+        pip install --no-cache-dir optimum[onnxruntime] transformers torch &&
+        python /app/edge/export_onnx.py embeddings --output /app/onnx/embeddings &&
+        python /app/edge/export_onnx.py slm --output /app/onnx/slm &&
+        python /app/edge/export_onnx.py config --embedding-dir /app/onnx/embeddings --slm-dir /app/onnx/slm --output /app/onnx/models.json &&
+        echo 'ONNX export complete.'
+      "
+    volumes:
+      - ./edge:/app/edge:ro
+      - onnx_models:/app/onnx
+    restart: "no"
+
+  # ------------------------------------------------------------------
+  # Edge RAG Static Server (for browser-based RAG)
+  # ------------------------------------------------------------------
+  edge-server:
+    image: nginx:alpine
+    container_name: rag-edge-server
+    ports:
+      - "8080:80"
+    volumes:
+      - ./edge:/usr/share/nginx/html:ro
+      - onnx_models:/usr/share/nginx/html/models:ro
+    restart: unless-stopped
+
+volumes:
+  ollama_data:
+  chroma_data:
+  langfuse_data:
+  reranker_cache:
+  vllm_cache:
+  onnx_models:

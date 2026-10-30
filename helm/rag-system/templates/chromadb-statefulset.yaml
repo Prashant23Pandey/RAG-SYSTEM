@@ -1,0 +1,68 @@
+{{- if .Values.chromadb.enabled }}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "rag.chromadbServiceName" . }}
+  labels:
+    {{- include "rag.labels" . | nindent 4 }}
+    app.kubernetes.io/component: chromadb
+spec:
+  serviceName: {{ include "rag.chromadbServiceName" . }}
+  replicas: {{ .Values.chromadb.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "rag.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: chromadb
+  template:
+    metadata:
+      labels:
+        {{- include "rag.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: chromadb
+    spec:
+      containers:
+        - name: chromadb
+          image: "{{ .Values.chromadb.image.repository }}:{{ .Values.chromadb.image.tag }}"
+          imagePullPolicy: {{ .Values.chromadb.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.chromadb.service.port }}
+              protocol: TCP
+          env:
+            - name: CHROMA_SERVER_HOST
+              value: "0.0.0.0"
+            - name: CHROMA_SERVER_PORT
+              value: "{{ .Values.chromadb.service.port }}"
+            - name: PERSIST_DIRECTORY
+              value: /chroma/chroma
+          resources:
+            {{- toYaml .Values.chromadb.resources | nindent 12 }}
+          volumeMounts:
+            - name: chroma-data
+              mountPath: /chroma/chroma
+          livenessProbe:
+            httpGet:
+              path: /api/v1/heartbeat
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: api/v1/heartbeat
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+  volumeClaimTemplates:
+    - metadata:
+        name: chroma-data
+      spec:
+        accessModes:
+          {{- toYaml .Values.chromadb.persistence.accessModes | nindent 8 }}
+        {{- if .Values.chromadb.persistence.storageClass }}
+        storageClassName: {{ .Values.chromadb.persistence.storageClass | quote }}
+        {{- else if .Values.global.storageClass }}
+        storageClassName: {{ .Values.global.storageClass | quote }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.chromadb.persistence.size }}
+{{- end }}

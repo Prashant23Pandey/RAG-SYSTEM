@@ -1,0 +1,50 @@
+[
+  {
+    "question": "What is LangGraph and what are its key features?",
+    "ground_truth_answer": "LangGraph is a library for building stateful, multi-actor applications with LLMs, built on top of LangChain. Key features include state management across multiple nodes, conditional edges and branching logic, support for human-in-the-loop workflows, cyclic graph execution, and integration with LangSmith for observability.",
+    "expected_source_docs": ["langgraph_info.txt"],
+    "category": "in_domain"
+  },
+  {
+    "question": "How does ChromaDB support vector search for RAG applications?",
+    "ground_truth_answer": "ChromaDB is an open-source embedding database that provides fast, accurate vector search capabilities. It supports multiple embedding functions including OpenAI and local models, persistent and in-memory storage options, metadata filtering for precise queries, and easy integration with LangChain and other frameworks.",
+    "expected_source_docs": ["chromadb_info.txt"],
+    "category": "in_domain"
+  },
+  {
+    "question": "What is Ollama and how do you use it to run local LLMs?",
+    "ground_truth_answer": "Ollama allows you to run large language models locally on your machine. It supports a wide range of models including Llama 3.2 and Mistral. Ollama provides a simple API for model interaction, local model hosting for privacy, embedding models like nomic-embed-text, and easy installation from ollama.com.",
+    "expected_source_docs": ["ollama_info.txt"],
+    "category": "in_domain"
+  },
+  {
+    "question": "What is the capital of France?",
+    "ground_truth_answer": "The capital of France is Paris.",
+    "expected_source_docs": [],
+    "category": "out_of_domain"
+  },
+  {
+    "question": "How do you install LangChain in a Python project?",
+    "ground_truth_answer": "To install LangChain, use pip install langchain. You can also install additional components like langchain-community and langchain-ollama for extended functionality.",
+    "expected_source_docs": [],
+    "category": "out_of_domain"
+  },
+  {
+    "question": "What are the main components of a LangGraph workflow?",
+    "ground_truth_answer": "A LangGraph workflow consists of nodes (functions that process state), edges (connections between nodes), conditional edges (branching logic), and a state object that is passed between nodes. The workflow is defined as a StateGraph and compiled for execution.",
+    "expected_source_docs": ["langgraph_info.txt"],
+    "category": "in_domain"
+  },
+  {
+    "question": "How does the document grading system work in this RAG pipeline?",
+    "ground_truth_answer": "The document grading system uses an LLM to evaluate each retrieved document chunk against the user question. It assigns a relevance score of yes or no. Documents scored as no are filtered out, and if no relevant documents remain, the system triggers a web search fallback.",
+    "expected_source_docs": [],
+    "category": "in_domain"
+  },
+  {
+    "question": "What embedding model does ChromaDB use for document vectors?",
+    "ground_truth_answer": "The system uses Ollama's nomic-embed-text model to generate document embeddings stored in ChromaDB.",
+    "expected_source_docs": ["chromadb_info.txt"],
+    "category": "in_domain"
+  }
+]

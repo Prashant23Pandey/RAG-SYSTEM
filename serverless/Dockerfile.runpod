@@ -1,0 +1,41 @@
+# =============================================================================
+# RunPod Dockerfile for vLLM Serverless
+# =============================================================================
+
+FROM runpod/pytorch:2.1.0-py3.11-cuda12.1.1-devel-ubuntu22.04
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    curl \
+    wget \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Python dependencies
+RUN pip install --no-cache-dir \
+    vllm>=0.6.0 \
+    torch>=2.1.0 \
+    transformers>=4.40.0 \
+    accelerate>=0.30.0 \
+    requests>=2.32.0
+
+# Create cache directory
+RUN mkdir -p /workspace/cache
+
+# Set environment variables
+ENV MODEL_NAME=meta-llama/Llama-3.2-3B-Instruct
+ENV CACHE_DIR=/workspace/cache
+ENV PORT=8000
+ENV HF_TOKEN=""
+
+# Copy handler
+COPY serverless/runpod_handler.py /workspace/handler.py
+
+# Set working directory
+WORKDIR /workspace
+
+# Expose port
+EXPOSE ${PORT}
+
+# Default command
+CMD ["python", "-u", "handler.py"]

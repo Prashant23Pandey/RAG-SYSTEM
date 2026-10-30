@@ -1,0 +1,20 @@
+{{- if and .Values.vllm.enabled .Values.vllm.persistence.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "rag.vllmServiceName" . }}-cache
+  labels:
+    {{- include "rag.labels" . | nindent 4 }}
+    app.kubernetes.io/component: vllm
+spec:
+  accessModes:
+    {{- toYaml .Values.vllm.persistence.accessModes | nindent 4 }}
+  {{- if .Values.vllm.persistence.storageClass }}
+  storageClassName: {{ .Values.vllm.persistence.storageClass | quote }}
+  {{- else if .Values.global.storageClass }}
+  storageClassName: {{ .Values.global.storageClass | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.vllm.persistence.size }}
+{{- end }}
